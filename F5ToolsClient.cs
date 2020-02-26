@@ -9,26 +9,24 @@ namespace F5Tools
     public class F5ToolsClient
     {
         private string _token;
-        private readonly HttpClient _client;
+        private readonly HttpTools _httpTools;
+        private readonly Logger _logger;
 
         public F5ToolsClient(string server)
         {
-            var clientHandler = new HttpClientHandler
-            {
-                ServerCertificateCustomValidationCallback = (sender, cert, chain, sslPolicyErrors) => { return true; }
-            };
+            _httpTools = new HttpTools();
+            _logger = new Logger();
 
-            _client = new HttpClient(clientHandler)
-            {
-                BaseAddress = new Uri($"https://{server}:443/mgmt/")
-            };
+            _httpTools.SetBaseAddress($"https://{server}:443/mgmt/");
         }
+
+        private void Log(string msg) => _logger.Log(msg, "F5ToolsClient");
 
         public async Task<bool> Login(string username, string password)
         {
-            Console.WriteLine("Loggin in...");
+            Log("Loggin in...");
 
-            var success = await SendJson(
+            var success = await _httpTools.SendJson(
                  HttpMethod.Post,
                  "shared/authn/login",
                  JsonConvert.SerializeObject(new
@@ -41,26 +39,23 @@ namespace F5Tools
                  {
                      _token = response.token.token;
 
-                     Console.WriteLine($"Token: {_token}");
-
                      return true;
                  })
                 .ConfigureAwait(false);
 
             if (success)
-                Console.WriteLine("Login was successfull.");
+                Log("Login was successfull.");
             else
-                Console.WriteLine("Login wasn't successfull.");
+                Log("Login wasn't successfull.");
 
-            Console.WriteLine();
             return success;
         }
 
         public async Task<bool> EnablePoolMember(string poolName, string poolMemberName)
         {
-            Console.WriteLine($"Enabling pool member: {poolMemberName} in pool: {poolName}...");
+            Log($"Enabling pool member: {poolMemberName} in pool: {poolName}...");
 
-            var success = await SendJson(
+            var success = await _httpTools.SendJson(
                 HttpMethod.Put,
                 $"tm/ltm/pool/~Common~{poolName}/members/~Common~{poolMemberName}",
                 JsonConvert.SerializeObject(new
@@ -71,25 +66,24 @@ namespace F5Tools
                 {
                     var done = response.session == "monitor-enabled";
                     if (done)
-                        Console.WriteLine($"Pool member: {poolMemberName} in Pool: {poolName} is now enabled.");
+                        Log($"Pool member: {poolMemberName} in Pool: {poolName} is now enabled.");
                     return done;
                 },
                 $"X-F5-Auth-Token:{_token}").ConfigureAwait(false);
 
             if (success)
-                Console.WriteLine("Enabling was successfull.");
+                Log("Enabling was successfull.");
             else
-                Console.WriteLine("Enabling wasn't successfull.");
+                Log("Enabling wasn't successfull.");
 
-            Console.WriteLine();
             return success;
         }
 
         public async Task<bool> DisablePoolMember(string poolName, string poolMemberName)
         {
-            Console.WriteLine($"Disabling pool member: {poolMemberName} in pool: {poolName}...");
+            Log($"Disabling pool member: {poolMemberName} in pool: {poolName}...");
 
-            var success = await SendJson(
+            var success = await _httpTools.SendJson(
             HttpMethod.Put,
             $"tm/ltm/pool/~Common~{poolName}/members/~Common~{poolMemberName}",
             JsonConvert.SerializeObject(new
@@ -100,52 +94,17 @@ namespace F5Tools
             {
                 var done = response.session == "user-disabled";
                 if (done)
-                    Console.WriteLine($"Pool member: {poolMemberName} in Pool: {poolName} is now disabled.");
+                    Log($"Pool member: {poolMemberName} in Pool: {poolName} is now disabled.");
                 return done;
             },
             $"X-F5-Auth-Token:{_token}").ConfigureAwait(false);
 
             if (success)
-                Console.WriteLine("Disabling was successfull.");
+                Log("Disabling was successfull.");
             else
-                Console.WriteLine("Disabling wasn't successfull.");
-
-            Console.WriteLine();
+                Log("Disabling wasn't successfull.");
+            
             return success;
-        }
-
-        private async Task<T> SendJson<T>(HttpMethod method, string requestUri,
-            string json = null,
-            Func<dynamic, T> resultFunc = null,
-            params string[] headers)
-        {
-            var message = new HttpRequestMessage(method, requestUri)
-            {
-                Content = string.IsNullOrWhiteSpace(json) ? null : new StringContent(json, Encoding.UTF8, "application/json"),
-            };
-
-            foreach (var header in headers)
-            {
-                var indexOfColon = header.IndexOf(':');
-                var headerName = header.Substring(0, indexOfColon);
-
-                indexOfColon++; // skip the colon
-
-                var headerValue = header[indexOfColon..];
-
-                message.Headers.Add(headerName, headerValue);
-            }
-
-            var response = await _client.SendAsync(message).ConfigureAwait(false);
-
-            response.EnsureSuccessStatusCode();
-
-            var responseContentString = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
-
-            if (resultFunc != null)
-                return resultFunc(JsonConvert.DeserializeObject(responseContentString));
-
-            return default;
         }
     }
 }
